@@ -1,0 +1,9 @@
+etc/init/
+etc/systemd/system
+/etc/stream-schedule/
+/etc/logrotate.d/
+/usr/share/upstart
+/var/log/stream-schedule/
+/var/log/stream-schedule/plot
+/var/run/stream-schedule/
+/usr/share/stream-schedule/status/

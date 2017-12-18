@@ -1,0 +1,20 @@
+Source: stream-schedule
+Section: sound
+Priority: optional
+Maintainer: Milan Chrobok <mc@radiopiloten.de>
+Build-Depends: debhelper (>= 8)
+Build-Depends-Indep: perl
+Standards-Version: 3.9.3
+Homepage: https://launchpad.net/~mc-1/+archive/stream-schedule
+
+Package: stream-schedule
+Architecture: all
+Depends: ${misc:Depends},
+ libconfig-general-perl,
+ libclone-perl,
+ libgetopt-long-descriptive-perl,
+ libtime-hires-perl,
+ gnuplot-nox,
+ stream-schedule-liquidsoap,
+ stream-schedule-gsync
+Description: audio stream schedule with with liquidsoap and google calendar

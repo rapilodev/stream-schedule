@@ -1,0 +1,56 @@
+stream-schedule (0.01.0041) trusty; urgency=low
+  * fix systemd/upstart handling
+ -- Milan Chrobok <mc@radiopiloten.de>  Thu, 16 Nov 2017 23:04:09 +0200
+
+stream-schedule (0.01.0040) trusty; urgency=low
+  * add station id to alias list
+ -- Milan Chrobok <mc@radiopiloten.de>  Thu, 16 Nov 2017 23:04:09 +0200
+
+stream-schedule (0.01.0039) trusty; urgency=low
+  * write image temporarily and move, fist stop run level
+ -- Milan Chrobok <mc@radiopiloten.de>  Wed, 15 Nov 2017 23:04:09 +0200
+
+stream-schedule (0.01.0037) trusty; urgency=low
+  * fix log rotation
+ -- Milan Chrobok <mc@radiopiloten.de>  Fri, 23 Feb 2017 23:04:09 +0200
+
+stream-schedule (0.01.0036) trusty; urgency=low
+  * add measuring peak and RMS for input and output
+ -- Milan Chrobok <mc@radiopiloten.de>  Fri, 06 Jan 2017 23:04:09 +0200
+
+stream-schedule (0.01.0034) trusty; urgency=low
+  * adopt log levels
+ -- Milan Chrobok <mc@radiopiloten.de>  Wed, 23 Nov 2016 23:04:09 +0200
+
+stream-schedule (0.01.0033) trusty; urgency=low
+  * fix saving status, abort on connection loss, decrease sleep if action takes too long
+ -- Milan Chrobok <mc@radiopiloten.de>  Wed, 20 Sun 2016 23:04:09 +0200
+
+stream-schedule (0.01.0030) trusty; urgency=low
+  * fix logrotate
+ -- Milan Chrobok <mc@radiopiloten.de>  Wed, 20 Sun 2016 23:04:09 +0200
+
+stream-schedule (0.01.0028) trusty; urgency=low
+  * timeout handling for hanging connections, reset scheduler connection state
+ -- Milan Chrobok <mc@radiopiloten.de>  Wed, 20 Nov 2016 23:04:09 +0200
+
+stream-schedule (0.01.0023) trusty; urgency=low
+  * reduce log level on broken pipes for gone liquidsoap connections
+ -- Milan Chrobok <mc@radiopiloten.de>  Wed, 25 May 2016 23:04:09 +0200
+
+stream-schedule (0.01.0022) trusty; urgency=low
+  * retry on hanging sockets, catch broken pipe
+ -- Milan Chrobok <mc@radiopiloten.de>  Tue, 24 May 2016 23:04:09 +0200
+
+stream-schedule (0.01.0021) trusty; urgency=low
+  * add debug for skipping sync
+ -- Milan Chrobok <mc@radiopiloten.de>  Tue, 24 May 2016 23:04:09 +0200
+
+stream-schedule (0.01.0019) trusty; urgency=low
+  * fix socket communication
+ -- Milan Chrobok <mc@radiopiloten.de>  Tue, 24 May 2016 22:04:09 +0200
+
+stream-schedule (0.01.0018) trusty; urgency=low
+  * initial package
+ -- Milan Chrobok <mc@radiopiloten.de>  Sun, 28 Feb 2016 12:04:09 +0200
+

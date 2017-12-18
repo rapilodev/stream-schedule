@@ -1,0 +1,81 @@
+#! /bin/sh
+
+isUpstart() {
+    /sbin/init --version 2>/dev/null | grep -q 'upstart' || return 1
+    echo "upstart" found
+    return 0
+}
+
+isSystemd() {
+    /bin/systemctl 2>/dev/null | grep -q '\-\.mount' || return 1
+    echo "systemd found"
+    return 0
+}
+
+if ! getent group audiostream >/dev/null; then
+    addgroup --system audiostream
+fi
+
+if ! getent passwd audiostream >/dev/null; then
+    adduser --system --ingroup audiostream --home /var/lib/audiostream audiostream
+fi
+
+addgroup audiostream pulse
+addgroup audiostream pulse-access
+addgroup audiostream audio
+
+# user home
+if [ -d /var/lib/audiostream/ ]; then
+    chown audiostream:audiostream /var/lib/audiostream/
+    chmod 0750 /var/lib/audiostream/
+fi
+
+# pid directory
+if [ -d /var/run/stream-schedule/ ]; then
+    chown audiostream:audiostream /var/run/stream-schedule/
+    chmod 0775 /var/run/stream-schedule/
+fi
+
+# status dir
+if [ -d /usr/share/stream-schedule/ ]; then
+    chown audiostream:audiostream /usr/share/stream-schedule/
+    chmod 0775 /usr/share/stream-schedule/
+fi
+
+if [ -d /usr/share/stream-schedule/status/ ]; then
+    chown audiostream:www-data /usr/share/stream-schedule/status/
+    chmod 0775 /usr/share/stream-schedule/status/
+fi
+
+# log dir
+if [ -d /var/log/stream-schedule/ ]; then
+    chgrp audiostream /var/log/stream-schedule/
+    chmod 0775 /var/log/stream-schedule/
+fi
+
+# plot dir
+if [ -d /var/log/stream-schedule/plot/ ]; then
+    chown -R audiostream:www-data /var/log/stream-schedule/plot/
+    chmod 0755 /var/log/stream-schedule/plot/
+fi
+ 
+[ -f /etc/stream-schedule/stream-schedule.conf ] && chgrp audiostream /etc/stream-schedule/stream-schedule.conf
+[ -f /etc/init/stream-schedule.conf ] && chgrp audiostream /etc/init/stream-schedule.conf
+[ -f /etc/logrotate.d/stream-schedule ] && chgrp audiostream /etc/logrotate.d/stream-schedule
+[ -f /etc/logrotate.d/stream-schedule ] && chmod 644 /etc/logrotate.d/stream-schedule
+
+if isUpstart; then
+	echo "stop stream-schedule upstart service"
+	initctl reload-configuration
+	status stream-schedule && stop stream-schedule || echo "could not stop service"
+	start stream-schedule
+elif isSystemd; then
+	echo "stop stream-schedule systemd service"
+	systemctl enable stream-schedule
+	systemctl start stream-schedule
+fi
+
+exit 0
+
+
+

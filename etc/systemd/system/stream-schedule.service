@@ -1,0 +1,24 @@
+
+[Unit]
+Description=audio stream schedule
+After=network.target
+
+[Service]
+Restart=always
+User=audiostream
+PIDFile=/var/run/stream-schedule/stream-schedule.pid
+ExecStartPre= [ -d /var/run/stream-schedule ] || mkdir /var/run/stream-schedule
+ExecStartPre= chmod 775 /var/run/stream-schedule
+ExecStartPre= chown audiostream /var/run/stream-schedule
+ExecStartPre= [ -f /var/run/stream-schedule/stream-schedule.pid ] && rm /var/run/stream-schedule/stream-schedule.pid
+ExecStartPre= [ -d /var/log/stream-schedule/ ] || mkdir /var/log/stream-schedule/
+ExecStartPre= chmod 755 /var/log/stream-schedule
+ExecStartPre= chown audiostream:www-data /var/log/stream-schedule/
+ExecStartPre= [ -f /var/log/stream-schedule/scheduler.log ] && chmod 664 /var/log/stream-schedule/scheduler.log
+ExecStartPre= [ -f /var/log/stream-schedule/scheduler.log ] && chown audiostream:www-data /var/log/stream-schedule/scheduler.log
+ExecStart=/usr/bin/scheduler.pl --daemon >>/var/log/stream-schedule/scheduler.log 2>&1
+ExecReload=/bin/kill -HUP $(cat /var/run/stream-schedule/stream-schedule.pid)
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,16 @@
+/var/log/stream-schedule/scheduler.log {
+	rotate 7
+	daily
+	compress
+	missingok
+	copytruncate
+	postrotate
+		find /var/log/stream-schedule/plot/ -type f -name "monitor-*" -mtime +365 -exec rm {} \;
+	endscript
+
+#   since output will be piped to log, we use copytruncate
+#	postrotate
+#	kill -HUP `cat /var/run/stream-schedule/stream-schedule.pid 2>/dev/null` 2>/dev/null || true
+#	endscript
+}
+

@@ -1,0 +1,27 @@
+#! /bin/sh -e
+
+isUpstart() {
+    /sbin/init --version 2>/dev/null | grep -q 'upstart' || return 1
+    echo "upstart" found
+    return 0
+}
+
+isSystemd() {
+    /bin/systemctl 2>/dev/null | grep -q '\-\.mount' || return 1
+    echo "systemd found"
+    return 0
+}
+
+if [ "$1" = "remove" ]; then
+	if isUpstart; then
+		echo "stop stream-schedule upstart service"
+		status stream-schedule && stop stream-schedule || echo "could not stop service"
+		initctl reload-configuration
+    elif isSystemd; then
+		echo "stop stream-schedule systemd service"
+		systemctl stop stream-schedule
+		systemctl disable stream-schedule
+	fi
+fi
+
+exit 0
