@@ -17,4 +17,5 @@ do
     [ -f /var/log/stream-schedule/scheduler.log ] && chown audiostream:www-data /var/log/stream-schedule/scheduler.log
 
     su -s /bin/sh -c 'exec "$0" "$@" >> /var/log/stream-schedule/scheduler.log 2>&1' audiostream -- /usr/bin/scheduler.pl --daemon
+    sleep 3
 done
