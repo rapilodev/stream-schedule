@@ -1,3 +1,11 @@
+stream-schedule (0.01.0051) xenial; urgency=low
+  * fix systemd service location
+ -- Milan Chrobok <mc@radiopiloten.de>  Thu, 21 Apr 2018 16:54:09 +0200
+
+stream-schedule (0.01.0042) xenial; urgency=low
+  * move to xenial
+ -- Milan Chrobok <mc@radiopiloten.de>  Thu, 21 Apr 2018 16:04:09 +0200
+
 stream-schedule (0.01.0041) trusty; urgency=low
   * fix systemd/upstart handling
  -- Milan Chrobok <mc@radiopiloten.de>  Thu, 16 Nov 2017 23:04:09 +0200

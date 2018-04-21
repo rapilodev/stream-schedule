@@ -1,15 +1,23 @@
 #! /bin/sh
 
 isUpstart() {
-    /sbin/init --version 2>/dev/null | grep -q 'upstart' || return 1
-    echo "upstart" found
-    return 0
+    /sbin/init --version 2>/dev/null | grep -q 'upstart'
+    #echo "result=$?"
+    if [ "$?" = "0" ]; then
+        return 0
+    else 
+        return 1
+    fi
 }
 
 isSystemd() {
-    /bin/systemctl 2>/dev/null | grep -q '\-\.mount' || return 1
-    echo "systemd found"
-    return 0
+    /bin/systemctl 2>/dev/null | grep -q '\-\.mount'
+    #echo "result=$?"
+    if [ "$?" = "0" ]; then
+        return 0
+    else 
+        return 1
+    fi
 }
 
 if ! getent group audiostream >/dev/null; then
@@ -58,6 +66,8 @@ if [ -d /var/log/stream-schedule/plot/ ]; then
     chown -R audiostream:www-data /var/log/stream-schedule/plot/
     chmod 0755 /var/log/stream-schedule/plot/
 fi
+
+chmod 0755 /bin/start-stream-schedule.sh
  
 [ -f /etc/stream-schedule/stream-schedule.conf ] && chgrp audiostream /etc/stream-schedule/stream-schedule.conf
 [ -f /etc/init/stream-schedule.conf ] && chgrp audiostream /etc/init/stream-schedule.conf
@@ -65,12 +75,13 @@ fi
 [ -f /etc/logrotate.d/stream-schedule ] && chmod 644 /etc/logrotate.d/stream-schedule
 
 if isUpstart; then
-	echo "stop stream-schedule upstart service"
+	echo "restart stream-schedule upstart service"
 	initctl reload-configuration
 	status stream-schedule && stop stream-schedule || echo "could not stop service"
 	start stream-schedule
 elif isSystemd; then
-	echo "stop stream-schedule systemd service"
+	echo "restart stream-schedule systemd service"
+	systemctl daemon-reload
 	systemctl enable stream-schedule
 	systemctl start stream-schedule
 fi

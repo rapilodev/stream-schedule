@@ -1,15 +1,23 @@
 #! /bin/sh -e
 
 isUpstart() {
-    /sbin/init --version 2>/dev/null | grep -q 'upstart' || return 1
-    echo "upstart" found
-    return 0
+    /sbin/init --version 2>/dev/null | grep -q 'upstart'
+    #echo "result=$?"
+    if [ "$?" = "0" ]; then
+        return 0
+    else 
+        return 1
+    fi
 }
 
 isSystemd() {
-    /bin/systemctl 2>/dev/null | grep -q '\-\.mount' || return 1
-    echo "systemd found"
-    return 0
+    /bin/systemctl 2>/dev/null | grep -q '\-\.mount'
+    #echo "result=$?"
+    if [ "$?" = "0" ]; then
+        return 0
+    else 
+        return 1
+    fi
 }
 
 if [ "$1" = "remove" ]; then
