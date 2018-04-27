@@ -14,3 +14,4 @@ chown audiostream:www-data /var/log/stream-schedule/
 [ -f /var/log/stream-schedule/scheduler.log ] && chmod 664 /var/log/stream-schedule/scheduler.log
 [ -f /var/log/stream-schedule/scheduler.log ] && chown audiostream:www-data /var/log/stream-schedule/scheduler.log
 
+exit 0

@@ -4,14 +4,15 @@ Description=audio stream schedule
 After=network.target
 
 [Service]
-#Type=simple
 Restart=always
 RestartSec=1s
+StartLimitInterval=0
 
 User=audiostream
 Group=audiostream
 
-ExecStartPre=+/bin/prepare-stream-schedule.sh >>/var/log/stream-schedule/scheduler.log 2>&1
+PermissionsStartOnly=true
+ExecStartPre=/bin/prepare-stream-schedule.sh >>/var/log/stream-schedule/scheduler.log 2>&1
 ExecStart=/usr/bin/scheduler.pl --daemon >>/var/log/stream-schedule/scheduler.log 2>&1
 ExecReload=/bin/kill -HUP $(cat /var/run/stream-schedule/stream-schedule.pid) >>/var/log/stream-schedule/scheduler.log 2>&1
 

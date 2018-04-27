@@ -67,7 +67,7 @@ if [ -d /var/log/stream-schedule/plot/ ]; then
     chmod 0755 /var/log/stream-schedule/plot/
 fi
 
-chmod 0755 /bin/start-stream-schedule.sh
+chmod 0755 /bin/prepare-stream-schedule.sh
  
 [ -f /etc/stream-schedule/stream-schedule.conf ] && chgrp audiostream /etc/stream-schedule/stream-schedule.conf
 [ -f /etc/init/stream-schedule.conf ] && chgrp audiostream /etc/init/stream-schedule.conf

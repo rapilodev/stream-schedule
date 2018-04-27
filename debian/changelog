@@ -1,4 +1,4 @@
-stream-schedule (0.01.0054) xenial; urgency=low
+stream-schedule (0.01.0055) xenial; urgency=low
   * fix systemd service again
  -- Milan Chrobok <mc@radiopiloten.de>  Thu, 27 Apr 2018 16:54:09 +0200
 
