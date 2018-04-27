@@ -17,7 +17,7 @@ use IO::Socket::UNIX qw(SOCK_STREAM);
 use IO::Socket::INET qw(SOCK_STREAM);
 use IO::Select;
 
-#$| = 1;
+$| = 1;
 
 our $verbose = undef;
 updateTime();
@@ -64,17 +64,33 @@ our $isVerboseEnabled2 = ( defined $verbose ) && ( $verbose >= 2 );
 our $isVerboseEnabled3 = ( defined $verbose ) && ( $verbose >= 3 );
 our $isVerboseEnabled4 = ( defined $verbose ) && ( $verbose >= 4 );
 
+$SIG{INT} = sub {
+	info("received INT signal, cleanup and quit") if $isVerboseEnabled0;
+	closeSocket($fileSocket);
+	closeSocket($telnetSocket);
+    exit;
+};
+
 $SIG{TERM} = sub {
-	info("connection lost to liquidsoap (terminated), close sockets") if $isVerboseEnabled3;
+	info("received TERM signal, cleanup and quit") if $isVerboseEnabled0;
+	closeSocket($fileSocket);
+	closeSocket($telnetSocket);
+    exit;
+};
+
+$SIG{HUP} = sub {
+	info("received HUP signal, reload configuration (toBeDone, workaround=quit") if $isVerboseEnabled0;
+	closeSocket($fileSocket);
+	closeSocket($telnetSocket);
+    exit;
+};
+
+$SIG{PIPE} = sub {
+	info("connection lost to liquidsoap (broken pipe), close sockets") if $isVerboseEnabled0;
 	closeSocket($fileSocket);
 	closeSocket($telnetSocket);
 };
 
-$SIG{PIPE} = sub {
-	info("connection lost to liquidsoap (broken pipe), close sockets") if $isVerboseEnabled3;
-	closeSocket($fileSocket);
-	closeSocket($telnetSocket);
-};
 our $log = $config->{scheduler}->{log};
 daemonize($log) if defined $params->{daemon};
 
@@ -1225,7 +1241,8 @@ sub info {
 
 	my $caller = getCaller();
 	my $date   = timeToDatetime();
-	my $line   = "$date\tINFO";
+    my $pid    = $$;
+	my $line   = "$date\t$pid\tINFO";
 	$line .= sprintf( "\t%-16s", $caller ) if defined $caller;
 	$message =~ s/\n/\\n/g;
 	$message =~ s/\r/\\r/g;
@@ -1239,9 +1256,10 @@ sub warning {
 
 	my $now  = time();
 	my $date = timeToDatetime($now);
+    my $pid    = $$;
 	$message =~ s/\n/\\n/g;
 	$message =~ s/\r/\\r/g;
-	print "$date\tWARN\t$message\n";
+	print "$date\t$pid\tWARN\t$message\n";
 	$status->{warnings}->{$message} = $now unless defined $onlyToFile;
 }
 
@@ -1250,7 +1268,8 @@ sub error {
 
 	my $now  = time();
 	my $date = timeToDatetime($now);
-	print "$date\tERROR\t$message\n";
+    my $pid    = $$;
+	print "$date\t$pid\tERROR\t$message\n";
 	$status->{warnings}->{$message} = $now;
 }
 
@@ -1260,7 +1279,8 @@ sub exitOnError {
 
 	my $now  = time();
 	my $date = timeToDatetime($now);
-	print STDERR "$date\tERROR\t$caller\t$message\n";
+    my $pid    = $$;
+	print STDERR "$date\t$pid\tERROR\t$caller\t$message\n";
 	$status->{warnings}->{$message} = $now;
 	exit;
 }

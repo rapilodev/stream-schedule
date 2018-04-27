@@ -4,4 +4,4 @@ etc/init/stream-schedule.conf /etc/init
 etc/logrotate.d/stream-schedule /etc/logrotate.d
 etc/stream-schedule/stream-schedule.conf /etc/stream-schedule
 etc/systemd/system/stream-schedule.service /etc/systemd/system
-bin/start-stream-schedule.sh
+bin/prepare-stream-schedule.sh

@@ -4,13 +4,16 @@ Description=audio stream schedule
 After=network.target
 
 [Service]
-Type=simple
-Restart=on-failure
-RestartSec=3
+#Type=simple
+Restart=always
+RestartSec=1s
 
+User=audiostream
 Group=audiostream
-ExecStart=/bin/start-stream-schedule.sh
-ExecReload=/bin/kill -HUP $(cat /var/run/stream-schedule/stream-schedule.pid)
+
+ExecStartPre=+/bin/prepare-stream-schedule.sh >>/var/log/stream-schedule/scheduler.log 2>&1
+ExecStart=/usr/bin/scheduler.pl --daemon >>/var/log/stream-schedule/scheduler.log 2>&1
+ExecReload=/bin/kill -HUP $(cat /var/run/stream-schedule/stream-schedule.pid) >>/var/log/stream-schedule/scheduler.log 2>&1
 
 [Install]
 WantedBy=multi-user.target
