@@ -102,6 +102,9 @@ our $scheduleFile = $config->{scheduler}->{scheduleFile};
 # touch this file to trigger update
 our $triggerSyncFile = $config->{scheduler}->{triggerSyncFile};
 
+# touch this file to trigger restart
+our $triggerRestartFile = $config->{scheduler}->{triggerRestartFile} || '';
+
 # write current status to file
 our $schedulerStatusFile = $config->{scheduler}->{statusFile};
 
@@ -129,6 +132,7 @@ our $plotInterval = 1 * 60;
 # write rms status in seconds
 our $rmsInterval = 60;
 
+our $maxRestartInterval = 1 * 60;
 our $maxSyncInterval = 3 * 60;
 our $previousSync    = time();
 
@@ -167,6 +171,7 @@ while (1) {
 	info( "$unixDate - $previousCheck = " . ( $unixDate - $previousCheck ) . " > $reload ?" ) if $isVerboseEnabled3;
 	$state = 'check' if $unixDate - $previousCheck > $reload;
 
+        checkRestart();
 	syncSchedule();
 	getEvents() if $state eq 'check';
 	checkRunning($event);
@@ -303,6 +308,24 @@ sub getFileLastModified {
 	my $file = shift;
 	my @stat = stat($file);
 	return $stat[9];
+}
+
+
+sub checkRestart{
+    if ($triggerRestartFile eq ''){
+		info("skip restart, trigger file $triggerRestartFile is not configured") if $isVerboseEnabled0;
+		return;
+    }
+	unless ( -e $triggerRestartFile ) {
+		info("skip restart, trigger file $triggerRestartFile does not exist") if $isVerboseEnabled0;
+		return;
+	}
+    unless (unlink $triggerRestartFile){
+		info("skip restart, cannot remove trigger file $triggerRestartFile") if $isVerboseEnabled0;
+        return;
+    }
+    warning("restart");
+    liquidsoapCmd( 'restart' );
 }
 
 sub syncSchedule {
@@ -623,7 +646,7 @@ sub buildDataFile {
 	my $dataFile = shift;
 
 	unlink $dataFile if -e $dataFile;
-
+	info("parse $rmsFile");
 	open my $file, "<", $rmsFile or warn("cannot read from $rmsFile");
 
 	my $content = '';
