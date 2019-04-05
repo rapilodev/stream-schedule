@@ -1,3 +1,8 @@
+stream-schedule (0.2.1) bionic; urgency=low
+  * remove domain socket support
+  * reduce logs
+ -- Milan Chrobok <mc@radiopiloten.de>  Fri, 05 Apr 2019 00:00:00 +0200
+
 stream-schedule (0.2.0) xenial; urgency=low
   * restart liquidsoap on request
  -- Milan Chrobok <mc@radiopiloten.de>  Sun, 30 Mar 2019 00:00:00 +0200

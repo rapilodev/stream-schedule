@@ -15,4 +15,5 @@ Depends: ${misc:Depends},
  libgetopt-long-descriptive-perl,
  libtime-hires-perl,
  gnuplot-nox,
+ libfile-readbackwards-perl
 Description: audio stream schedule with with liquidsoap and google calendar
