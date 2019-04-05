@@ -736,7 +736,7 @@ sub addMeasureToFile($$) {
     }
 
     my @localtime = localtime($unixDate);
-    my @line = ( strftime( "%F%T", @localtime ), @data );
+    my @line = ( strftime( "%F %T", @localtime ), @data );
     $line = join( "\t ", @line ) . "\n";
 
     #print data to file
