@@ -273,7 +273,6 @@ if ( defined $params->{help} ) {
     exit;
 }
 
-my $fileSocket    = undef;
 my $telnetSocket  = undef;
 my $socketTimeout = 1;
 my $minRms        = -36;
@@ -476,7 +475,7 @@ sub getStationInfo ($) {
     return $info;
 }
 
-sub checkRestart() {
+sub checkRestartLiquidsoap() {
     if ( $triggerRestartFile eq '' ) {
         info "skip restart, trigger file $triggerRestartFile is not configured"
           if $isVerboseEnabled0;
@@ -537,14 +536,67 @@ sub syncSchedule() {
 
     info "execute: $syncCommand" if $isVerboseEnabled1;
     clearErrorStatus();
-    my $result = `$syncCommand 2>&1`;
-    clearErrorStatus();
-    if ( $? != 0 ) {
-        warning "error in synchronization!";
-    }
+    my $result   = `$syncCommand 2>&1`;
+    my $exitCode = $? >> 8;
+    warning "error in synchronization!" if $exitCode != 0;
     info $result if $isVerboseEnabled0;
 
     $previousSync = time();
+}
+
+sub parseAgendaLine($$) {
+    my $plan = shift;
+    my $line = shift;
+
+    if ( $line =~ /^(\d{4}\-\d{2}\-\d{2})[T\s\;](\d{2}\:\d{2}(\:\d{2})?)[\s\;]+([^\;]+)[\s\;]*(\S+)?[\s\;]?/ ) {
+        my $eventDate = $1 . ' ' . $2;
+        my $event1    = $4 || '';
+        my $event2    = $5 || '';
+        info "event: '$eventDate' - '$event1' - '$event2'"
+          if $isVerboseEnabled4;
+        $eventDate .= ':00' if length($eventDate) <= 16;
+        my $eventUnixDate = datetimeToEpoch($eventDate);
+
+        #remove whitespaces from start and end
+        $event1 =~ s/^\s+//g;
+        $event1 =~ s/[\;\s]+$//g;
+        $event2 =~ s/^\s+//g;
+        $event2 =~ s/[\;\s]+$//g;
+        my %eventStation = ();
+
+        if ( defined $stations->{ lc($event1) } ) {
+
+            #predefined station
+            %eventStation = %{ $stations->{ lc($event1) } };
+        } else {
+
+            #build station from url
+            %eventStation = (
+                title => $event1,
+                url1  => $event1,
+                url2  => $event2
+            );
+        }
+
+        #save last event before current unix date
+        if ( $eventUnixDate < $unixDate ) {
+            $plan->[0] = {
+                name    => $event1,
+                station => \%eventStation,
+                date    => $eventDate,
+                epoch   => $eventUnixDate
+            };
+        } else {
+            push @$plan,
+              {
+                name    => $event1,
+                station => \%eventStation,
+                date    => $eventDate,
+                epoch   => $eventUnixDate
+              };
+        }
+    }
+
 }
 
 sub loadAgenda($) {
@@ -575,55 +627,7 @@ sub loadAgenda($) {
     open my $file, "<", $filename || exitOnError "cannot open schedule '$filename' for read!";
 
     while (<$file>) {
-        my $line = $_;
-        if ( $line =~ /^(\d{4}\-\d{2}\-\d{2})[T\s\;](\d{2}\:\d{2}(\:\d{2})?)[\s\;]+([^\;]+)[\s\;]*(\S+)?[\s\;]?/ ) {
-            my $eventDate = $1 . ' ' . $2;
-            my $event1    = $4 || '';
-            my $event2    = $5 || '';
-            info "event: '$eventDate' - '$event1' - '$event2'"
-              if $isVerboseEnabled4;
-            $eventDate .= ':00' if length($eventDate) <= 16;
-            my $eventUnixDate = datetimeToEpoch($eventDate);
-
-            #remove whitespaces from start and end
-            $event1 =~ s/^\s+//g;
-            $event1 =~ s/[\;\s]+$//g;
-            $event2 =~ s/^\s+//g;
-            $event2 =~ s/[\;\s]+$//g;
-            my %eventStation = ();
-
-            if ( defined $stations->{ lc($event1) } ) {
-
-                #predefined station
-                %eventStation = %{ $stations->{ lc($event1) } };
-            } else {
-
-                #build station from url
-                %eventStation = (
-                    title => $event1,
-                    url1  => $event1,
-                    url2  => $event2
-                );
-            }
-
-            #save last event before current unix date
-            if ( $eventUnixDate < $unixDate ) {
-                $plan->[0] = {
-                    name    => $event1,
-                    station => \%eventStation,
-                    date    => $eventDate,
-                    epoch   => $eventUnixDate
-                };
-            } else {
-                push @$plan,
-                  {
-                    name    => $event1,
-                    station => \%eventStation,
-                    date    => $eventDate,
-                    epoch   => $eventUnixDate
-                  };
-            }
-        }
+        parseAgendaLine( $plan, $_ );
     }
     close $file;
     return $plan;
@@ -677,6 +681,7 @@ sub setStream($;$) {
         info "liquidsoap " . $station . ".stop" if $isVerboseEnabled0;
         my $status = liquidsoapCmd( $station . '.url http://127.0.0.1/invalidStreamUrl' );
         return unless defined $status;
+
         liquidsoapCmd( $station . '.stop' );
         sleep(1);
         getStreamStatus( $station, $url );
@@ -1228,13 +1233,13 @@ sub writeStatusFile($) {
 
 sub printStatus() {
     my $line = $state;
-    $line .= " " . humanDuration($timeTillSwitch) if defined $timeTillSwitch;
+    $line .= " " . formatTime($timeTillSwitch) if defined $timeTillSwitch;
     $line .= ", " . $next->{name} . ' at ' . $next->{date}
       if defined $next->{date};
     info $line if $isVerboseEnabled0;
 }
 
-sub humanDuration($) {
+sub formatTime($) {
     my $time = shift;
     $time = -$time if $time < 0;
 
@@ -1278,14 +1283,12 @@ sub rmsToDb($) {
 
 $SIG{INT} = sub {
     info "received INT signal, cleanup and quit" if $isVerboseEnabled0;
-    closeSocket($fileSocket);
     closeSocket($telnetSocket);
     exit;
 };
 
 $SIG{TERM} = sub {
     info "received TERM signal, cleanup and quit" if $isVerboseEnabled0;
-    closeSocket($fileSocket);
     closeSocket($telnetSocket);
     exit;
 };
@@ -1293,7 +1296,6 @@ $SIG{TERM} = sub {
 $SIG{HUP} = sub {
     info "received HUP signal, reload configuration (toBeDone, workaround=quit"
       if $isVerboseEnabled0;
-    closeSocket($fileSocket);
     closeSocket($telnetSocket);
     exit;
 };
@@ -1301,12 +1303,10 @@ $SIG{HUP} = sub {
 $SIG{PIPE} = sub {
     info "connection lost to liquidsoap (broken pipe), close sockets"
       if $isVerboseEnabled0;
-    closeSocket($fileSocket);
     closeSocket($telnetSocket);
 };
 
 END {
-    closeSocket($fileSocket);
     closeSocket($telnetSocket);
 }
 
@@ -1317,7 +1317,7 @@ while (1) {
       if $isVerboseEnabled3;
     $state = 'check' if $unixDate - $previousCheck > $reload;
 
-    checkRestart();
+    checkRestartLiquidsoap();
     syncSchedule();
     getEvents() if $state eq 'check';
     checkRunning($event);
