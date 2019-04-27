@@ -1,6 +1,7 @@
 #!/usr/bin/perl -w
 use strict;
 use warnings;
+use v5.10;
 
 use Data::Dumper;
 use File::Basename qw();
@@ -24,6 +25,7 @@ my $unixDate       = 0;
 my $previousCheck  = 0;
 my $timeTillSwitch = 0;
 my $previousPlot   = 0;
+my $previous       = {};
 
 my $min  = 60;
 my $hour = 60 * $min;
@@ -376,7 +378,7 @@ sub checkRunning($) {
     if ( defined $entry->{date} ) {
         if ( $entry->{date} lt $date ) {
             info "running '" . $entry->{name} . "' since " . $entry->{date}
-              if $isVerboseEnabled1;
+              if $isVerboseEnabled2;
             $entry->{epoch} = datetimeToEpoch( $entry->{date} );
             playStation($entry);
         }
@@ -445,9 +447,7 @@ sub getNextEvent($) {
     my $current = $plan->[0];
     for my $entry (@$plan) {
         if ( $entry->{epoch} >= $unixDate ) {
-            info "found next $entry->{name} at "
-              . $entry->{date} . " "
-              . getStationInfo $entry->{station}
+            info "found next $entry->{name} at " . $entry->{date} . " " . getStationInfo $entry->{station}
               if $isVerboseEnabled2;
             $state = 'next in';
             return ( $current, $entry );
@@ -459,9 +459,7 @@ sub getNextEvent($) {
     #return last entry, if all events are over
     if ( scalar @$plan > 0 ) {
         my $entry = $plan->[-1];
-        info "found next $entry->{name} at "
-          . $entry->{date} . " "
-          . getStationInfo $entry->{station}
+        info "found next $entry->{name} at " . $entry->{date} . " " . getStationInfo $entry->{station}
           if $isVerboseEnabled2;
         $state = 'last since';
         return ( $entry, $entry );
@@ -555,9 +553,7 @@ sub loadAgenda($) {
     info "load '$filename'" if $isVerboseEnabled2;
 
     my $timestamp = getFileLastModified($filename) || 0;
-    info "lastModified "
-      . timeToDatetime($timestamp) . " ("
-      . timeToDatetime($scheduleFileModifiedAt) . ")"
+    info "lastModified " . timeToDatetime($timestamp) . " (" . timeToDatetime($scheduleFileModifiedAt) . ")"
       if $isVerboseEnabled2;
 
     if ( $timestamp == $scheduleFileModifiedAt ) {
@@ -580,10 +576,7 @@ sub loadAgenda($) {
 
     while (<$file>) {
         my $line = $_;
-        if ( $line =~
-/^(\d{4}\-\d{2}\-\d{2})[T\s\;](\d{2}\:\d{2}(\:\d{2})?)[\s\;]+([^\;]+)[\s\;]*(\S+)?[\s\;]?/
-          )
-        {
+        if ( $line =~ /^(\d{4}\-\d{2}\-\d{2})[T\s\;](\d{2}\:\d{2}(\:\d{2})?)[\s\;]+([^\;]+)[\s\;]*(\S+)?[\s\;]?/ ) {
             my $eventDate = $1 . ' ' . $2;
             my $event1    = $4 || '';
             my $event2    = $5 || '';
@@ -639,10 +632,7 @@ sub loadAgenda($) {
 sub playStation($) {
     my $event = shift;
 
-    my $line = "play ";
-    $line .= "'" . $event->{name} . "'" if defined $event->{name};
-    info $line if $isVerboseEnabled2;
-
+    info sprintf( "play '%s'", $event->{name} || '' ) if $isVerboseEnabled2;
     setStream( 1, $event->{station}->{'url1'} );
     setStream( 2, $event->{station}->{'url2'} );
     updateTime();
@@ -677,12 +667,10 @@ sub setStream($;$) {
 
         #mute channel
         $status->{liquidsoap}->{$station}->{error} = '';
-        if ( $channel eq '1' ) {
+        if ( ( $channel eq '1' ) && ( $url ne '' ) ) {
             my $msg = "invalid stream URL '$url'!";
-            if ( $url ne '' ) {
-                warning $msg, 'onlyToFile';
-                $status->{liquidsoap}->{$station}->{error} = "WARNING : $msg";
-            }
+            warning $msg, 'onlyToFile';
+            $status->{liquidsoap}->{$station}->{error} = "WARNING : $msg";
         }
 
         # return on no connection
@@ -693,11 +681,20 @@ sub setStream($;$) {
         sleep(1);
         getStreamStatus( $station, $url );
     }
+}
 
+sub printOnChange($$) {
+    my $key     = shift;
+    my $message = shift;
+
+    return if $message ne ( $previous->{$key} || '' );
+    info $message;
+    $previous->{$key} = $message;
 }
 
 #station: 1,2
 #url: target url to be played
+
 sub getStreamStatus($;$) {
     my $station = shift;
     my $url = shift || 'unknown';
@@ -708,8 +705,7 @@ sub getStreamStatus($;$) {
         return undef;
     }
 
-    info "liquidsoap $station : $streamStatus"
-      if $isVerboseEnabled1;
+    printOnChange( "play-$station", "liquidsoap $station : $streamStatus" ) if $isVerboseEnabled1;
     $status->{liquidsoap}->{$station}->{url} = $streamStatus;
 
     $streamStatus =~ s/^connected //g;
@@ -1048,8 +1044,7 @@ sub openTelnetSocket ($) {
         info "opened $socket" if ( defined $socket ) && $isVerboseEnabled3;
     }
 
-    my $message =
-      "liquidsoap is not available! " . "Cannot connect to telnet $liquidsoapHost:$liquidsoapPort";
+    my $message = "liquidsoap is not available! " . "Cannot connect to telnet $liquidsoapHost:$liquidsoapPort";
 
     unless ( defined $socket ) {
         $status->{liquidsoap}->{cli} = $message;
@@ -1183,8 +1178,7 @@ sub timeToDatetime($) {
 
     $time = time() unless ( defined $time ) && ( $time ne '' );
     ( my $sec, my $min, my $hour, my $day, my $month, my $year ) = localtime($time);
-    my $datetime =
-      sprintf( "%4d-%02d-%02d %02d:%02d:%02d", $year + 1900, $month + 1, $day, $hour, $min, $sec );
+    my $datetime = sprintf( "%4d-%02d-%02d %02d:%02d:%02d", $year + 1900, $month + 1, $day, $hour, $min, $sec );
     return $datetime;
 }
 
