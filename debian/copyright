@@ -1,11 +1,9 @@
 Format-Specification: http://anonscm.debian.org/viewvc/dep/web/deps/dep5.mdwn?view=markup&pathrev=135
 Maintainer: Milan Chrobok <mc@radiopiloten.de>
-
 Name: stream-schedule
 
 Files: *
 Copyright: 2015 Milan Chrobok <mc@radiopiloten.de>
-
 License: GPL-3+
  This program is free software; you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by
@@ -14,5 +12,3 @@ License: GPL-3+
  .
  On Debian systems, the complete text of version 3 of the GNU General
  Public License can be found in `/usr/share/common-licenses/GPL-3'.
-
-
