@@ -1,3 +1,7 @@
+stream-schedule (0.2.3) focal; urgency=low
+  * update debian files
+ -- Milan Chrobok <mc@radiopiloten.de>  Sun, 00 May 2021 00:00:00 +0200
+
 stream-schedule (0.2.2) xenial; urgency=low
   * fix date in level log
  -- Milan Chrobok <mc@radiopiloten.de>  Sat, 06 Apr 2019 00:00:00 +0200
