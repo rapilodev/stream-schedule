@@ -36,3 +36,5 @@ if isSystemd; then
 fi
 
 exit 0;
+#DEBHELPER#
+

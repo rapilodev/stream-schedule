@@ -33,3 +33,5 @@ if [ "$1" = "remove" ]; then
 fi
 
 exit 0
+#DEBHELPER#
+
