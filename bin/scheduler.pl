@@ -2,7 +2,6 @@
 use strict;
 use warnings;
 use v5.10;
-use Data::Dumper;
 use File::Basename  qw();
 use File::Copy      ();
 use Time::Local     qw();
@@ -16,6 +15,7 @@ use Storable         qw();
 use IO::Socket::UNIX qw(SOCK_STREAM);
 use IO::Socket::INET qw(SOCK_STREAM);
 use IO::Select;
+
 STDOUT->autoflush;
 STDERR->autoflush;
 
@@ -40,7 +40,6 @@ my $isVerboseEnabled1  = 0;
 my $isVerboseEnabled2  = 0;
 my $isVerboseEnabled3  = 0;
 my $isVerboseEnabled4  = 0;
-my $isVerboseEnabled5  = 0;
 my $streamSwitchOffset = 0;
 
 sub usage() {
@@ -54,7 +53,13 @@ OPTIONS
 };
 }
 
-sub updateTime() {
+sub timeToDatetime {
+    my @time = localtime($_[0] // time);
+    return sprintf '%04d-%02d-%02d %02d:%02d:%02d',
+        $time[5] + 1900, $time[4] + 1, $time[3], $time[2], $time[1], $time[0];
+}
+
+sub updateTime {
     print "\n" if $isVerboseEnabled2;
     $unixDate       = time();
     $date           = timeToDatetime($unixDate);
@@ -62,50 +67,41 @@ sub updateTime() {
         if defined $next->{epoch};
 }
 
-sub getCaller() {
+sub getCaller {
     my ($package, $filename, $line, $subroutine) = caller(2);
     return undef unless defined $subroutine;
     $subroutine =~ s/main\:\://;
     return "$subroutine()";
 }
 
-sub info ($) {
+sub info {
     my ($message) = @_;
     my $caller = getCaller();
-    $message =~ s/\n/\\n/g;
-    $message =~ s/\r/\\r/g;
+    $message =~ s/([\n\r])\\/\\$1/g;
     print join("\t", timeToDatetime(), $$, "INFO",  ($caller ? sprintf("\t%-16s", $caller) : ()), "$message\n");
 }
 
-sub warning($;$) {
+sub warning {
     my ($message, $onlyToFile) = @_;
-    $message =~ s/\n/\\n/g;
-    $message =~ s/\r/\\r/g;
+    $message =~ s/([\n\r])\\/\\$1/g;
     print join("\t", timeToDatetime(), $$, "WARN", "$message\n");
     $status->{warnings}->{$message} = time unless defined $onlyToFile;
 }
 
-sub error ($) {
+sub error {
     my ($message) = @_;
     print join("\t", timeToDatetime(), $$, "ERROR", "$message\n");
     $status->{warnings}->{$message} = time;
 }
 
-sub exitOnError($) {
+sub exitOnError {
     my ($message) = @_;
     print STDERR join("\t", timeToDatetime(), $$, "ERROR", getCaller(), "$message\n");
     $status->{warnings}->{$message} = time;
     exit;
 }
 
-sub timeToDatetime($) {
-    my $time = shift // time;
-    (my $sec, my $min, my $hour, my $day, my $month, my $year) = localtime($time);
-    return sprintf("%4d-%02d-%02d %02d:%02d:%02d",
-        $year + 1900, $month + 1, $day, $hour, $min, $sec);
-}
-
-sub datetimeToEpoch($) {
+sub datetimeToEpoch {
     my $datetime = shift || '';
     if ($datetime =~ /(\d\d\d\d)\-(\d+)\-(\d+)[T\s](\d+)\:(\d+)(\:(\d+))?/) {
         my $year   = $1;
@@ -120,17 +116,17 @@ sub datetimeToEpoch($) {
     return -1;
 }
 
-sub getConfig($) {
+sub getConfig {
     my ($filename) = @_;
-    exitOnError "config file '$filename' does not exist" unless -e $filename;
-    exitOnError "cannot read config '$filename'" unless -r $filename;
+    exitOnError("config file '$filename' does not exist") unless -e $filename;
+    exitOnError("cannot read config '$filename'") unless -r $filename;
     my $configuration = new Config::General($filename);
     my $config        = $configuration->{DefaultConfig};
     my $stations = $config->{stations}->{station};
     $stations = [$stations] if ref($stations) eq 'HASH';
-    exitOnError 'No stations configured!' unless defined $stations;
-    exitOnError 'configured stations should be a list!' unless ref($stations) eq 'ARRAY';
-    exitOnError 'There should be configured at least one station!' unless @$stations;
+    exitOnError('No stations configured!') unless defined $stations;
+    exitOnError('configured stations should be a list!') unless ref($stations) eq 'ARRAY';
+    exitOnError('There should be configured at least one station!') unless @$stations;
     my $manditoryAttributes = ['alias', 'url1', 'url2'];
     for my $station (@$stations) {
         $station->{$_} //= '' for qw(alias url1 url2);
@@ -139,29 +135,29 @@ sub getConfig($) {
     return $config;
 }
 
-sub getFileLastModified($) {
+sub getFileLastModified {
     return (stat(shift))[9];
 }
 
-sub writePidFile() {
+sub writePidFile {
     saveFile('pid file', '/var/run/stream-schedule/stream-schedule.pid', $$);
 }
 
-sub checkWritePermissions($$) {
+sub checkWritePermissions {
     my ($label, $filename) = @_;
     if (-e $filename && !-w $filename) {
-        warning "cannot write $label to '$filename'! Please check file permissions!";
+        warning("cannot write $label to '$filename'! Please check file permissions!");
         return 0;
     }
     my $dir = File::Basename::dirname($filename);
     unless (-w $dir) {
-        warning "cannot write $label to dir $dir! Please check file permissions!";
+        warning("cannot write $label to dir $dir! Please check file permissions!");
         return 0;
     }
     return 1;
 }
 
-sub saveFile($$$) {
+sub saveFile {
     my ($label, $filename, $content) = @_;
     return unless checkWritePermissions($label, $filename) == 1;
     open my $fh, ">", $filename or exitOnError(
@@ -169,10 +165,10 @@ sub saveFile($$$) {
     );
     print $fh $content;
     close $fh;
-    info "saved $label to '$filename'" if $isVerboseEnabled0;
+    info("saved $label to '$filename'") if $isVerboseEnabled0;
 }
 
-sub daemonize($) {
+sub daemonize {
     my $log = shift;
     saveFile('log file', $log, '') unless -e $log;
     setFilePermissions($log);
@@ -182,9 +178,9 @@ sub daemonize($) {
     writePidFile();
 }
 
-sub readStations($) {
+sub readStations {
     my $stations = shift;
-    info "" if $isVerboseEnabled2;
+    info("") if $isVerboseEnabled2;
     my $results = {};
     for my $station (@$stations) {
         my $id = $station->{id};
@@ -194,11 +190,11 @@ sub readStations($) {
         }
     }
     if ($verbose > 1) {
-        info "supported stations" if $isVerboseEnabled1;
+        info("supported stations") if $isVerboseEnabled1;
         for my $key (sort keys %$results) {
-            info sprintf("%-12s\t'%s'\t'%s'",
+            info(sprintf("%-12s\t'%s'\t'%s'",
                 $key, $results->{$key}->{url1}, $results->{$key}->{url2}
-            );
+            ));
         }
     }
     return $results;
@@ -257,7 +253,7 @@ my $reload = $config->{scheduler}->{reload};
 my $liquidsoapHost = $config->{liquidsoap}->{host};
 my $liquidsoapPort = $config->{liquidsoap}->{port};
 my $state = 'check';
-info "INIT" if $isVerboseEnabled0;
+info("INIT") if $isVerboseEnabled0;
 # plot interval in seconds
 my $plotInterval = 1 * 60;
 # write rms status in seconds
@@ -273,94 +269,94 @@ if (-e $scheduleFile) {
 my $lastStatusUpdate = time();
 my $stations         = readStations($config->{stations});
 
-sub getEvents() {
-    info "" if $isVerboseEnabled2;
+sub getEvents {
+    info("") if $isVerboseEnabled2;
     $plan = loadAgenda($scheduleFile, $unixDate);
     if (@$plan) {
         ($event, $next) = getNextEvent($plan);
         unless (defined $event) {
-            warning 'empty schedule!', 'onlyToFile';
+            warning('empty schedule!', 'onlyToFile');
             $state = 'sleep';
         }
     } else {
-        warning 'empty schedule !';
+        warning('empty schedule !');
         $state = 'sleep';
     }
 }
 
-sub checkRunning($) {
+sub checkRunning {
     my $entry = shift;
-    info "" if $isVerboseEnabled2;
+    info("") if $isVerboseEnabled2;
     updateTime();
     if (defined $entry->{date} && $entry->{date} lt $date) {
-        info "running '$entry->{name}' since $entry->{date}" if $isVerboseEnabled2;
+        info("running '$entry->{name}' since $entry->{date}") if $isVerboseEnabled2;
         $entry->{epoch} = datetimeToEpoch($entry->{date});
         playStation($entry);
     }
     $previousCheck = $unixDate;
 }
 
-sub checkStreamSwitch ($) {
+sub checkStreamSwitch {
     my $timeTillSwitch = shift;
-    info "" if $isVerboseEnabled2;
+    info("") if $isVerboseEnabled2;
     if ($timeTillSwitch <= 0) {
         playStation($next);
         my $sleep = $streamSwitchOffset + 1;
-        info "sleep $sleep secs (offset)" if $isVerboseEnabled1;
+        info("sleep $sleep secs (offset)") if $isVerboseEnabled1;
         sleep($sleep);
         ($event, $next) = getNextEvent($plan);
     }
 }
 
-sub checkSleep($) {
+sub checkSleep {
     my $state = shift;
     my $cycleDuration = time() - $cycleStart;
     my $sleep         = 30 - $cycleDuration;
     $sleep = 0 if $sleep < 0;
     updateTime();
     if ($state eq 'sleep') {
-        info sprintf('sleep %0.2f seconds', $sleep) if $isVerboseEnabled1;
+        info(sprintf('sleep %0.2f seconds', $sleep)) if $isVerboseEnabled1;
         sleep($sleep);
     } elsif ($timeTillSwitch < 0) {
-        info sprintf('sleep %0.2f seconds', $sleep) if $isVerboseEnabled1;
+        info(sprintf('sleep %0.2f seconds', $sleep)) if $isVerboseEnabled1;
         sleep($sleep);
     } elsif ($timeTillSwitch > 50) {
-        info sprintf('sleep %0.2f seconds', $sleep) if $isVerboseEnabled1;
+        info(sprintf('sleep %0.2f seconds', $sleep)) if $isVerboseEnabled1;
         sleep($sleep);
     } elsif ($timeTillSwitch > 30) {
-        info sprintf('sleep %0.2f seconds', $sleep) if $isVerboseEnabled1;
+        info(sprintf('sleep %0.2f seconds', $sleep)) if $isVerboseEnabled1;
         sleep(10);
     } elsif (($timeTillSwitch > 5) && ($timeTillSwitch <= 30)) {
         my $sleep = $timeTillSwitch - 5;
-        info sprintf('sleep %0.2f seconds', $sleep) if $isVerboseEnabled0;
+        info(sprintf('sleep %0.2f seconds', $sleep)) if $isVerboseEnabled0;
         sleep($sleep);
     } elsif ($timeTillSwitch > 0) {
         my $sleep = $timeTillSwitch;
-        info sprintf('sleep %0.2f seconds', $sleep) if $isVerboseEnabled1;
+        info(sprintf('sleep %0.2f seconds', $sleep)) if $isVerboseEnabled1;
         sleep($sleep);
     } else {
-        info "sleep 1 second" if $isVerboseEnabled1;
+        info("sleep 1 second") if $isVerboseEnabled1;
         sleep(1);
     }
 }
 
-sub getNextEvent($) {
+sub getNextEvent {
     my ($plan) = @_;
     updateTime();
     my $current = $plan->[0];
     for my $entry (@$plan) {
         if ($entry->{epoch} >= $unixDate) {
-            info "found next $entry->{name} at $entry->{date} " . getStationInfo $entry->{station}
+            info("found next $entry->{name} at $entry->{date} " . getStationinfo($entry->{station}))
                 if $isVerboseEnabled2;
             $state = 'next in';
             return ($current, $entry);
         }
         $current = $entry;
     }
-    warning 'no future entries found in schedule!';
+    warning('no future entries found in schedule!');
     if (@$plan) {
         my $entry = $plan->[-1];
-        info "found next $entry->{name} at $entry->{date} " . getStationInfo $entry->{station}
+        info("found next $entry->{name} at $entry->{date} " . getStationinfo($entry->{station}))
             if $isVerboseEnabled2;
         $state = 'last since';
         return ($entry, $entry);
@@ -368,52 +364,52 @@ sub getNextEvent($) {
     return undef;
 }
 
-sub getStationInfo ($) {
+sub getStationinfo {
     my $station = shift;
     return join("\t", grep { defined } ($station->{url1}, $station->{url2}));
 }
 
-sub checkRestartLiquidsoap() {
+sub checkRestartLiquidsoap {
     if ($triggerRestartFile eq '') {
-        info "skip restart, trigger file $triggerRestartFile is not configured"
+        info("skip restart, trigger file $triggerRestartFile is not configured")
             if $isVerboseEnabled0;
         return;
     }
     unless (-e $triggerRestartFile) {
-        info "skip restart, trigger file $triggerRestartFile does not exist"
+        info("skip restart, trigger file $triggerRestartFile does not exist")
             if $isVerboseEnabled0;
         return;
     }
     unless (unlink $triggerRestartFile) {
-        info "skip restart, cannot remove trigger file $triggerRestartFile"
+        info("skip restart, cannot remove trigger file $triggerRestartFile")
             if $isVerboseEnabled0;
         return;
     }
-    warning "restart";
+    warning("restart");
     liquidsoapCmd('restart');
 }
 
-sub syncSchedule() {
+sub syncSchedule {
     my $now = time();
     if ($now - $previousSync < $maxSyncInterval) {
-        info "skip sync, has been done shortly before at "
+        info("skip sync, has been done shortly before at "
             . timeToDatetime($previousSync)
             . ", age:"
             . int($now - $previousSync)
-            if $isVerboseEnabled0;
+        ) if $isVerboseEnabled0;
         return;
     }
     # Ensure schedule file exists
     unless (-e $scheduleFile) {
         saveFile(' schedule file ', $scheduleFile, "");
         unless (-e $scheduleFile) {
-            warning "could not write $scheduleFile! Please check permissions";
+            warning("could not write $scheduleFile! Please check permissions");
             return;
         }
     }
     # skip sync if trigger file is missing
     unless (-e $triggerSyncFile) {
-        info "skip sync, trigger file $triggerSyncFile does not exist"
+        info("skip sync, trigger file $triggerSyncFile does not exist")
             if $isVerboseEnabled0;
         return;
     }
@@ -421,23 +417,23 @@ sub syncSchedule() {
     my $scheduleFileAge    = getFileLastModified($scheduleFile)    || 0;
     my $triggerSyncFileAge = getFileLastModified($triggerSyncFile) || 0;
     if ($scheduleFileAge > $triggerSyncFileAge) {
-        info "skip sync, schedule file is up to date, lastModified="
+        info("skip sync, schedule file is up to date, lastModified="
             . timeToDatetime($scheduleFileAge)
             . ", lastTrigger="
             . timeToDatetime($triggerSyncFileAge)
-            if $isVerboseEnabled0;
+            ) if $isVerboseEnabled0;
         return;
     }
-    info "execute: $syncCommand" if $isVerboseEnabled1;
+    info("execute: $syncCommand") if $isVerboseEnabled1;
     clearErrorStatus();
     my $result   = `$syncCommand 2>&1`;
     my $exitCode = $? >> 8;
-    warning "error in synchronization!" if $exitCode != 0;
-    info $result                        if $isVerboseEnabled0;
+    warning("error in synchronization!") if $exitCode != 0;
+    info($result)                        if $isVerboseEnabled0;
     $previousSync = time();
 }
 
-sub parseAgendaLine($$) {
+sub parseAgendaLine {
     my ($plan, $line) = @_;
     if (
         $line =~ /^(\d{4}\-\d{2}\-\d{2})[T\s\;](\d{2}\:\d{2}(\:\d{2})?)[\s\;]+([^\;]+)[\s\;]*(\S+)?[\s\;]?/
@@ -445,8 +441,7 @@ sub parseAgendaLine($$) {
         my $eventDate = "$1 $2";
         my $event1    = $4 || '';
         my $event2    = $5 || '';
-        info "event: '$eventDate' - '$event1' - '$event2'"
-            if $isVerboseEnabled4;
+        info("event: '$eventDate' - '$event1' - '$event2'") if $isVerboseEnabled4;
         $eventDate .= ':00' if length($eventDate) <= 16;
         my $eventUnixDate = datetimeToEpoch($eventDate);
         #remove whitespaces from start and end
@@ -485,27 +480,27 @@ sub parseAgendaLine($$) {
     }
 }
 
-sub loadAgenda($) {
+sub loadAgenda {
     my $filename = shift;
-    info "load '$filename'" if $isVerboseEnabled2;
+    info("load '$filename'") if $isVerboseEnabled2;
     my $timestamp = getFileLastModified($filename) || 0;
-    info "lastModified "
+    info("lastModified "
         . timeToDatetime($timestamp) . " ("
         . timeToDatetime($scheduleFileModifiedAt) . ")"
-        if $isVerboseEnabled2;
+        ) if $isVerboseEnabled2;
     if ($timestamp == $scheduleFileModifiedAt) {
-        info "skip, file '$filename' has not changed" if $isVerboseEnabled1;
+        info("skip, file '$filename' has not changed") if $isVerboseEnabled1;
         return $plan;
     }
     $scheduleFileModifiedAt = $timestamp;
-    info "reload schedule $filename" if $isVerboseEnabled0;
+    info("reload schedule $filename") if $isVerboseEnabled0;
     my $plan = [];
     unless (-e $filename) {
-        warning "schedule file '$filename' does not exist!";
+        warning("schedule file '$filename' does not exist!");
         return $plan;
     }
     unless (-r $filename) {
-        warning "cannot read schedule '$filename'!";
+        warning("cannot read schedule '$filename'!");
         return $plan;
     }
     open my $file, "<",
@@ -519,13 +514,13 @@ sub loadAgenda($) {
 
 sub playStation($) {
     my $event = shift;
-    info sprintf("play '%s'", $event->{name} // '') if $isVerboseEnabled2;
+    info(sprintf("play '%s'", $event->{name} // '')) if $isVerboseEnabled2;
     setStream(1, $event->{station}->{'url1'});
     setStream(2, $event->{station}->{'url2'});
     updateTime();
 }
 
-sub setStream($;$) {
+sub setStream {
     my ($channel, $url) = @_;
     $url ||= '';
     my $station = "station$channel";
@@ -533,11 +528,11 @@ sub setStream($;$) {
         my $status = getStreamStatus($station, $url);
         return unless defined $status;
         unless ($status =~ /^connected/) {
-            info "reconnect '$url'" if $isVerboseEnabled1;
+            info("reconnect '$url'") if $isVerboseEnabled1;
             liquidsoapCmd($station . '.url ' . $url);
             liquidsoapCmd($station . '.stop');
             sleep(1);
-            info "liquidsoap " . $station . ".url: " . $url
+            info("liquidsoap " . $station . ".url: " . $url)
                 if $isVerboseEnabled1;
             liquidsoapCmd($station . '.start');
             sleep(1);
@@ -547,10 +542,10 @@ sub setStream($;$) {
         $status->{liquidsoap}->{$station}->{error} = '';
         if (($channel eq '1') && ($url ne '')) {
             my $msg = "invalid stream URL '$url'!";
-            warning $msg, 'onlyToFile';
-            $status->{liquidsoap}->{$station}->{error} = "WARNING : $msg";
+            warning($msg, 'onlyToFile');
+            $status->{liquidsoap}->{$station}->{error} = "warning(: $msg";
         }
-        info "liquidsoap " . $station . ".stop" if $isVerboseEnabled0;
+        info("liquidsoap " . $station . ".stop") if $isVerboseEnabled0;
         my $status = liquidsoapCmd($station . '.url http://127.0.0.1/invalidStreamUrl');
         return unless defined $status;
         liquidsoapCmd($station . '.stop');
@@ -562,7 +557,7 @@ sub setStream($;$) {
 sub printOnChange($$) {
     my ($key, $message) = @_;
     return if $message ne ($previous->{$key} || '');
-    info $message;
+    info($message);
     $previous->{$key} = $message;
 }
 #station: 1,2
@@ -582,17 +577,15 @@ sub getStreamStatus($;$) {
     $streamStatus =~ s/^connected //g;
     $streamStatus .= '/' if ($streamStatus =~ /\:\d+$/) && ($url =~ /\/$/);
     if ($url eq $streamStatus) {
-        info "status $station: '$url' -> $streamStatus -> connected"
-            if $isVerboseEnabled2;
+        info("status $station: '$url' -> $streamStatus -> connected") if $isVerboseEnabled2;
         return "connected";
     } else {
-        info "status $station: '$url' -> $streamStatus -> not connected"
-            if $isVerboseEnabled2;
+        info("status $station: '$url' -> $streamStatus -> not connected") if $isVerboseEnabled2;
         return "not connected";
     }
 }
 
-sub addMeasureToFile($$) {
+sub addMeasureToFile {
     my ($plotDir, $line) = @_;
     my @data = split(/\s/, $line);
     for my $i (0 .. 7) {
@@ -603,7 +596,7 @@ sub addMeasureToFile($$) {
     $line = join("\t ", @line) . "\n";
     my $filename = $plotDir . 'monitor' . '-' . strftime("%F", @localtime) . '.log';
     if (-e $filename) {
-        open my $fh, ">> ", $filename or return warning "cannot write plot log";
+        open my $fh, ">> ", $filename or return warning("cannot write plot log");
         print $fh $line;
         close $fh;
     } else {
@@ -613,7 +606,7 @@ sub addMeasureToFile($$) {
             setFilePermissions($filename);
         }
     }
-    info "RMS values measured" if $isVerboseEnabled2;
+    info("RMS values measured") if $isVerboseEnabled2;
     $previousPlot = $unixDate;
     my $date = strftime("%F", @localtime);
     plot($filename, $date);
@@ -634,9 +627,9 @@ sub addMeasureToFile($$) {
     }
 }
 
-sub measureLevels($) {
+sub measureLevels {
     my $status = shift;
-    info "" if $isVerboseEnabled2;
+    info("") if $isVerboseEnabled2;
     my $plotDir = $config->{scheduler}->{plotDir};
     return unless -d $plotDir;
     my $remoteDuration = liquidsoapCmd('var.get duration');
@@ -647,7 +640,7 @@ sub measureLevels($) {
     addMeasureToFile($plotDir, $line);
 }
 
-sub setFilePermissions($) {
+sub setFilePermissions {
     my $path    = shift;
     my $userId  = getpwnam('audiostream');
     my $groupId = getgrnam('www-data');
@@ -655,10 +648,10 @@ sub setFilePermissions($) {
     chown($userId, $groupId, $path);
 }
 
-sub buildDataFile($$) {
+sub buildDataFile {
     my ($rmsFile, $dataFile) = @_;
     unlink $dataFile if -e $dataFile;
-    info "parse $rmsFile";
+    info("parse $rmsFile");
     open my $file, "< ", $rmsFile or return warn("cannot read from $rmsFile");
     my $content = '';
     while (<$file>) {
@@ -684,13 +677,13 @@ sub buildDataFile($$) {
         $content .= join("\t ", @vals) . "\n";
     }
     close $file;
-    info "plot $dataFile";
+    info("plot $dataFile");
     open my $out, ">", $dataFile or return warn("cannot write to $dataFile");
     print $out $content;
     close $out;
 }
 
-sub plot($$) {
+sub plot {
     my ($filename, $date) = @_;
     my $plotDir = $config->{scheduler}->{plotDir};
     return unless -d $plotDir;
@@ -783,7 +776,7 @@ $minRms-1   notitle lc rgb "#00999999", \\
         . q{" using 1:(-$7) notitle lc rgb "#5000ff00" w filledcurves y1=0
 };
     my $plotFile = "/tmp/monitor.plot";
-    open my $file, '>', $plotFile or return warning "Cannot write plot file $plotFile";
+    open my $file, '>', $plotFile or return warning("Cannot write plot file $plotFile");
     print $file $plot;
     close $file;
     my $tempImageFile = "/tmp/monitor.svg";
@@ -800,21 +793,21 @@ $minRms-1   notitle lc rgb "#00999999", \\
 
 sub liquidsoapCmd ($) {
     my $command = shift;
-    return warning "neither liquidsoap unix socket is configured nor telnet host and port"
+    return warning("neither liquidsoap unix socket is configured nor telnet host and port")
         unless (defined $liquidsoapHost && defined $liquidsoapPort);
     my $result = liquidsoapTelnetCmd($telnetSocket, $command) or return;
     if ($result =~ /Connection timed out/) {
         closeSocket($telnetSocket);
-        info "retry ..." if $isVerboseEnabled1;
+        info("retry ...") if $isVerboseEnabled1;
         $result = liquidsoapTelnetCmd($telnetSocket, $command);
     }
     return $result;
 }
 
-sub closeSocket($) {
+sub closeSocket {
     my $socket = shift;
     return unless defined $socket;
-    info "close socket $socket" if $isVerboseEnabled3;
+    info("close socket $socket") if $isVerboseEnabled3;
     my $select = IO::Select->new();
     $select->add($socket);
     print $socket "exit\n" if $select->can_write($socketTimeout);
@@ -822,11 +815,10 @@ sub closeSocket($) {
     $socket = undef;
 }
 
-sub openTelnetSocket ($) {
+sub openTelnetSocket {
     my $socket = shift;
     unless (defined $socket) {
-        info "open telnet socket to $liquidsoapHost:$liquidsoapPort"
-            if $isVerboseEnabled3;
+        info("open telnet socket to $liquidsoapHost:$liquidsoapPort") if $isVerboseEnabled3;
         $socket = IO::Socket::INET->new(
             PeerAddr => $liquidsoapHost,
             PeerPort => $liquidsoapPort,
@@ -834,13 +826,13 @@ sub openTelnetSocket ($) {
             Type     => SOCK_STREAM,
             Timeout  => $socketTimeout,
         );
-        info "opened $socket" if (defined $socket) && $isVerboseEnabled3;
+        info("opened $socket") if defined $socket && $isVerboseEnabled3;
     }
     my $message = "liquidsoap is not available! "
         . "Cannot connect to telnet $liquidsoapHost:$liquidsoapPort";
     unless (defined $socket) {
         $status->{liquidsoap}->{cli} = $message;
-        error $message;
+        error($message);
         return undef;
     }
     if (defined $status->{liquidsoap}  && defined $status->{liquidsoap}->{cli}) {
@@ -849,7 +841,7 @@ sub openTelnetSocket ($) {
     return $socket;
 }
 
-sub writeSocket($$) {
+sub writeSocket {
     my ($socket, $command) = @_;
     my $select = IO::Select->new();
     $select->add($socket);
@@ -857,21 +849,21 @@ sub writeSocket($$) {
     my $data     = $command . "\n";
     while (length($data) > 0) {
         for my $handle ($select->can_write($socketTimeout)) {
-            info "syswrite '$data'" if $isVerboseEnabled3;
+            info("syswrite '$data'") if $isVerboseEnabled3;
             my $rc = syswrite $handle, $data;
             if ($rc > 0) {
-                info "syswrite ok, length=$rc" if $isVerboseEnabled3;
+                info("syswrite ok, length=$rc") if $isVerboseEnabled3;
                 substr($data, 0, $rc) = '';
             } elsif ($! == EWOULDBLOCK) {
-                info "syswrite would block" if $isVerboseEnabled3;
+                info("syswrite would block") if $isVerboseEnabled3;
             } else {
-                warning "syswrite error for command=$command";
+                warning("syswrite error for command=$command");
                 closeSocket($socket);
                 return 0;
             }
         }
         if (time() > $stopTime) {
-            warning "syswrite timeout for command=$command";
+            warning("syswrite timeout for command=$command");
             closeSocket($socket);
             return 0;
         }
@@ -879,7 +871,7 @@ sub writeSocket($$) {
     return 1;
 }
 
-sub readSocket($) {
+sub readSocket {
     my $socket = $_[0];
     my $lines  = '';
     my $stopTime = time() + $socketTimeout;
@@ -891,31 +883,31 @@ sub readSocket($) {
             my $rc   = sysread $handle, $data, 60000;
             if (defined $rc) {
                 if ($rc > 0) {
-                    info "sysread ok: $data" if $isVerboseEnabled3;
+                    info("sysread ok: $data") if $isVerboseEnabled3;
                     $lines .= $data;
                 } else {
-                    info "sysread end of line" if $isVerboseEnabled3;
+                    info("sysread end of line") if $isVerboseEnabled3;
                     closeSocket($socket);
                 }
             } elsif ($! == EWOULDBLOCK) {
-                info "sysread would block" if $isVerboseEnabled3;
+                info("sysread would block") if $isVerboseEnabled3;
             } else {
-                warning "sysread error";
+                warning("sysread error");
                 closeSocket($socket);
             }
         }
         last if $lines =~ /\r\nEND\r\n/;
         if (time() > $stopTime) {
-            warning "sysread timeout";
+            warning("sysread timeout");
             closeSocket($socket);
             last;
         }
     }
-    info "result:'$lines'" if $isVerboseEnabled3;
+    info("result:'$lines'") if $isVerboseEnabled3;
     return $lines;
 }
 
-sub parseLiquidsoapResponse($$) {
+sub parseLiquidsoapResponse {
     my ($command, $lines) = @_;
     my $result = '';
     if (defined $lines) {
@@ -923,18 +915,18 @@ sub parseLiquidsoapResponse($$) {
             next unless defined $line;
             next                 if $line eq $command;
             last                 if $line =~ /^END/;
-            info "line:" . $line if $isVerboseEnabled3;
+            info("line:" . $line) if $isVerboseEnabled3;
             $result .= $line . "\n";
         }
     }
     $result =~ s/\s+$//;
-    info "result:'$result'" if $isVerboseEnabled3;
+    info("result:'$result'") if $isVerboseEnabled3;
     return $result;
 }
 
-sub liquidsoapTelnetCmd ($$) {
+sub liquidsoapTelnetCmd {
     my ($socket, $command) = @_;
-    info "send command '$command' to $liquidsoapHost:$liquidsoapPort" if $isVerboseEnabled2;
+    info("send command '$command' to $liquidsoapHost:$liquidsoapPort") if $isVerboseEnabled2;
     $socket = openTelnetSocket($socket);
     return '' unless defined $socket;
     writeSocket($socket, $command) or return '';
@@ -943,9 +935,9 @@ sub liquidsoapTelnetCmd ($$) {
     return $result;
 }
 
-sub writeStatusFile($) {
+sub writeStatusFile {
     my $filename = shift;
-    info "" if $isVerboseEnabled2;
+    info("") if $isVerboseEnabled2;
     for my $key (keys %{$status->{warnings}}) {
         my $time = $status->{warnings}->{$key};
         delete $status->{warnings}->{$key}
@@ -959,22 +951,22 @@ sub writeStatusFile($) {
         stations   => $stations,
         warnings   => $status->{warnings}
     };
-    warning "status file '$filename' does not exist!" unless -w $filename;
+    warning("status file '$filename' does not exist!") unless -w $filename;
     return unless checkWritePermissions('status file', $filename);
     Storable::nstore($entry, $filename);
     $lastStatusUpdate = time();
     setFilePermissions($filename);
 }
 
-sub printStatus() {
+sub printStatus {
     return unless $isVerboseEnabled0;
     my $line = $state;
     $line .= " " . formatTime($timeTillSwitch) if defined $timeTillSwitch;
     $line .= ", " . $next->{name} . ' at ' . $next->{date} if defined $next->{date};
-    info $line;
+    info($line);
 }
 
-sub formatTime($) {
+sub formatTime {
     my $time = shift;
     $time = -$time if $time < 0;
     my $s = '';
@@ -1002,9 +994,8 @@ sub clearErrorStatus() {
     $status->{liquidsoap}->{station1}->{error} = '';
     $status->{liquidsoap}->{station2}->{error} = '';
 }
-#full scale to DB
 
-sub rmsToDb($) {
+sub rmsToDb {
     my $val = $_[0];
     if ((looks_like_number($val)) && ($val > 0.0)) {
         my $db = 20.0 * log($val) / log(10.0);
@@ -1014,22 +1005,22 @@ sub rmsToDb($) {
     }
 }
 $SIG{INT} = sub {
-    info "received INT signal, cleanup and quit" if $isVerboseEnabled0;
+    info("received INT signal, cleanup and quit") if $isVerboseEnabled0;
     closeSocket($telnetSocket);
     exit;
 };
 $SIG{TERM} = sub {
-    info "received TERM signal, cleanup and quit" if $isVerboseEnabled0;
+    info("received TERM signal, cleanup and quit") if $isVerboseEnabled0;
     closeSocket($telnetSocket);
     exit;
 };
 $SIG{HUP} = sub {
-    info "received HUP signal, reload configuration (toBeDone, workaround=quit" if $isVerboseEnabled0;
+    info("received HUP signal, reload configuration (toBeDone, workaround=quit") if $isVerboseEnabled0;
     closeSocket($telnetSocket);
     exit;
 };
 $SIG{PIPE} = sub {
-    info "connection lost to liquidsoap (broken pipe), close sockets" if $isVerboseEnabled0;
+    info("connection lost to liquidsoap (broken pipe), close sockets") if $isVerboseEnabled0;
     closeSocket($telnetSocket);
 };
 
@@ -1040,7 +1031,7 @@ END {
 while (1) {
     updateTime();
     $cycleStart = $unixDate;
-    info "$unixDate - $previousCheck = " . ($unixDate - $previousCheck) . " > $reload ?" if $isVerboseEnabled3;
+    info("$unixDate - $previousCheck = " . ($unixDate - $previousCheck) . " > $reload ?") if $isVerboseEnabled3;
     $state = 'check' if $unixDate - $previousCheck > $reload;
     checkRestartLiquidsoap();
     syncSchedule();
