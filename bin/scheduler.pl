@@ -525,8 +525,7 @@ sub setStream {
     $url ||= '';
     my $station = "station$channel";
     if (($url =~ /^https?\:\/\//)) {
-        my $status = getStreamStatus($station, $url);
-        return unless defined $status;
+        my $status = getStreamStatus($station, $url) or return;
         unless ($status =~ /^connected/) {
             info("reconnect '$url'") if $isVerboseEnabled1;
             liquidsoapCmd($station . '.url ' . $url);
@@ -585,47 +584,32 @@ sub getStreamStatus($;$) {
     }
 }
 
+# read audio levels from log file, then update status and plot
 # format: peak in L, peak in R, rms in L, rms in R, peak out L, peak out R, rms out L, rms out R
 
-sub addMeasureToFile{
-    my ($plotDir, $data_line) = @_;
-    my @localtime = localtime($unixDate);
-    my @data = split(/\s/, $data_line);
-    my $line = join("\t ", strftime("%F %T", @localtime), @data);
-    my $filename = $plotDir . 'monitor' . '-' . strftime("%F", @localtime) . '.log';
-    open my $fh, (-e $filename ? '>>' : '>'), $filename or return warning "cannot write plot log";
-    print $fh "$line\n";
-    close $fh;
-    setFilePermissions($filename);
-    info("RMS values measured") if $isVerboseEnabled2;
-    $previousPlot = $unixDate;
-    my $date = strftime("%F", @localtime);
-    plot($filename, $date);
-
-    $status->{'measure-in'}->{peakLeft}   = $data[0];
-    $status->{'measure-in'}->{peakRight}  = $data[1];
-    $status->{'measure-in'}->{rmsLeft}    = $data[2];
-    $status->{'measure-in'}->{rmsRight}   = $data[3];
-    $status->{'measure-out'}->{peakLeft}  = $data[4];
-    $status->{'measure-out'}->{peakRight} = $data[5];
-    $status->{'measure-out'}->{rmsLeft}   = $data[6];
-    $status->{'measure-out'}->{rmsRight}  = $data[7];
-    $status->{warnings}->{"there is silence"} = time() if
-           $status->{'measure-in'}->{rmsLeft} < -60
-        && $status->{'measure-in'}->{rmsRight} < -60;
-}
-
 sub measureLevels {
-    my $status = shift;
+    my ($status) = @_;
     info("") if $isVerboseEnabled2;
     my $plotDir = $config->{scheduler}->{plotDir};
     return unless -d $plotDir;
-    my $remoteDuration = liquidsoapCmd('var.get duration');
-    return unless defined $remoteDuration;
-    $remoteDuration = 0.0 unless looks_like_number($remoteDuration);
-    liquidsoapCmd('var.set duration=' . $rmsInterval) if $remoteDuration != $rmsInterval;
-    my $line = liquidsoapCmd('measure');
-    addMeasureToFile($plotDir, $line);
+
+    my $date = strftime("%F", localtime($unixDate));
+    my $filename = $plotDir . "monitor-$date.log";
+    my $line = qx{tail -1 $filename};
+    (my $datetime,
+        $status->{'measure-in'}->{peakLeft},  $status->{'measure-in'}->{peakRight},
+        $status->{'measure-in'}->{rmsLeft},   $status->{'measure-in'}->{rmsRight},
+        $status->{'measure-out'}->{peakLeft}, $status->{'measure-out'}->{peakRight},
+        $status->{'measure-out'}->{rmsLeft},  $status->{'measure-out'}->{rmsRight}
+    ) = split /\t/, $line;
+    info("RMS values measured") if $isVerboseEnabled2;
+
+    $status->{warnings}->{"there is silence"} = time() if
+           $status->{'measure-in'}->{rmsLeft} < -60
+        && $status->{'measure-in'}->{rmsRight} < -60;
+
+    $previousPlot = $unixDate;
+    plot($filename, $date);
 }
 
 sub setFilePermissions {
@@ -637,60 +621,60 @@ sub setFilePermissions {
 }
 
 sub buildDataFile {
-    my ($rmsFile, $dataFile) = @_;
-    unlink $dataFile if -e $dataFile;
+    my ($rmsFile) = @_;
     info("parse $rmsFile");
     open my $file, "< ", $rmsFile or return warn("cannot read from $rmsFile");
-    my $content = '';
+    my @lines = ();
     while (<$file>) {
-        chomp;
-        my $line = $_;
-        if ($line =~ /^#/) {
-            $content .= $line . "\n";
+        if ($_ =~ /^#/) {
+            push  @lines, $_;
             next;
         }
-        my @vals = split(/\t/, $line);
-        next if scalar(@vals) < 5;
-        for my $i (1 .. 8) {
-            my $val = $vals[$i];
-            if ($val <= -100) {
-                $vals[$i] = '-';
-                next;
-            }
-            $val = -$minRms if $val < -$minRms;
-            $val = abs($val);
-            $val = $minRms - $val;
-            $vals[$i] = $val;
+        my @vals = split /\t/, $_;
+        if (scalar @vals >= 5) {
+            push @lines, join ("\t", $vals[0], map {
+                $_ <= -100 ? '-' : $minRms - abs(($_ < -$minRms ? -$minRms : $_))
+            } @vals[1..8]);
         }
-        $content .= join("\t ", @vals) . "\n";
     }
     close $file;
-    info("plot $dataFile");
-    open my $out, ">", $dataFile or return warn("cannot write to $dataFile");
-    print $out $content;
-    close $out;
+    return join("\n", @lines)."\n";
 }
 
 sub plot {
     my ($filename, $date) = @_;
+
     my $plotDir = $config->{scheduler}->{plotDir};
-    return unless -d $plotDir;
     my $gnuplot = $config->{scheduler}->{gnuplot};
-    return unless -e $gnuplot;
+
+    return warning("plotDir not found") unless -d $plotDir;
+    return warning("gnuplot binary not found") unless -e $gnuplot;
     return warning("skip plot, $filename does not exist") unless -e $filename;
-    my $dataFile = '/tmp/' . File::Basename::basename($filename) . '.plot';
-    buildDataFile($filename, $dataFile);
-    $filename = $dataFile;
-    return warning("skip plot, $filename does not exist") unless -e $filename;
+
+    my $base = File::Basename::basename($filename);
+    my $dataFile = "/tmp/$base.plot";
+
+    open my $out, ">", $dataFile or return warning("Cannot write to $dataFile");
+    print $out join("\n", buildDataFile($filename)) . "\n";
+    close $out;
+
+    return warning("skip plot, data file missing after build") unless -e $dataFile;
+
     info("") if $isVerboseEnabled2;
-    my @ytics = (); 
+    $filename = $dataFile;
+
+    my @ytics = ();
     for (my $i = 0; $i <= $minRms; $i += 8) {
         unshift @ytics, '"-' . ($minRms - abs(-$i)) . '" ' . (-$i);
         push @ytics, '"-' . ($minRms - abs($i)) . '" ' . ($i);
     }
     my $ytics = join(", ", @ytics);
-    my $plot = qq{
+
+    my $tempImageFile = "/tmp/monitor.svg";
+    info("gnuplot save to $tempImageFile");
+    my $plot = <<"PLOT";
 set terminal svg size 2000,600 linewidth 1 background rgb 'black'
+set output "| cat > $tempImageFile"
 set multiplot layout 3, 1
 set xdata time
 set timefmt "%Y-%m-%d %H:%M:%S"
@@ -702,81 +686,56 @@ set style data lines
 unset border
 set grid
 set tmargin 1
-set bmargin 1
+set bmargin 2
 set lmargin 10
 set rmargin 3
-set xrange ["} . $date . q{ 00:00:00Z":"} . $date . qq{ 23:59:59Z"]
+set xrange ["$date 00:00:00Z":"$date 23:59:59Z"]
 
-} . qq{
-set ylabel "input in dB" tc rgb "#f0f0f0"
+set ylabel "Input in dB" tc rgb "#f0f0f0"
 set ytics ($ytics)
 set yrange [-$minRms:$minRms]
-
 plot \\
-$minRms-20  notitle lc rgb "#50999999", \\
--$minRms+20 notitle lc rgb "#50999999", \\
-$minRms-1   notitle lc rgb "#50999999", \\
--$minRms+1  notitle lc rgb "#50999999", \\
-"}
-        . $filename
-        . q{" using 1:( $4) notitle lc rgb "#50eecccc" w filledcurves y1=0, \
-"}
-        . $filename
-        . q{" using 1:(-$5) notitle lc rgb "#50cceecc" w filledcurves y1=0, \
-"}
-        . $filename
-        . q{" using 1:( $2) notitle lc rgb "#50ff0000" w filledcurves y1=0, \
-"}
-        . $filename
-        . q{" using 1:(-$3) notitle lc rgb "#5000ff00" w filledcurves y1=0
-set ylabel "gain in dB" tc rgb "#f0f0f0"
+    $minRms-20 notitle lc rgb "#50999999", \\
+   -$minRms+20 notitle lc rgb "#50999999", \\
+    $minRms-1  notitle lc rgb "#50999999", \\
+   -$minRms+1  notitle lc rgb "#50999999", \\
+   "$filename" using 1:( \$4) notitle lc rgb "#50eecccc" w filledcurves y1=0, \\
+   "$filename" using 1:(-\$5) notitle lc rgb "#50cceecc" w filledcurves y1=0, \\
+   "$filename" using 1:( \$2) notitle lc rgb "#50ff0000" w filledcurves y1=0, \\
+   "$filename" using 1:(-\$3) notitle lc rgb "#5000ff00" w filledcurves y1=0
+
+set ylabel "Gain in dB" tc rgb "#f0f0f0"
 set yrange [-24:24]
 set ytics border mirror norotate autofreq
-} . qq{
 plot \\
-0 notitle lc rgb "#50999999", \\
-"}
-        . $filename
-        . qq{" using 1:(.0+(\$6)-(\$2)) notitle lc rgb "#50ff0000" smooth freq, \\
-"}
-        . $filename
-        . qq{" using 1:(.0+(\$7)-(\$3)) notitle lc rgb "#5000ff00" smooth freq\\
-} . qq{
-set ylabel "output in dB" tc rgb "#f0f0f0"
+    0 notitle lc rgb "#50999999", \\
+   "$filename" using 1:(0+(\$6)-(\$2)) notitle lc rgb "#50ff0000" smooth freq, \\
+   "$filename" using 1:(0+(\$7)-(\$3)) notitle lc rgb "#5000ff00" smooth freq
+
+set ylabel "Output in dB" tc rgb "#f0f0f0"
 set ytics ($ytics)
 set yrange [-$minRms:$minRms]
 plot \\
-$minRms-20  notitle lc rgb "#00999999", \\
--$minRms+20 notitle lc rgb "#00999999", \\
-$minRms-1   notitle lc rgb "#00999999", \\
--$minRms+1  notitle lc rgb "#00999999", \\
-"}
-        . $filename
-        . q{" using 1:( $8) notitle lc rgb "#50eecccc" w filledcurves y1=0, \
-"}
-        . $filename
-        . q{" using 1:(-$9) notitle lc rgb "#50cceecc" w filledcurves y1=0, \
-"}
-        . $filename
-        . q{" using 1:( $6) notitle lc rgb "#50ff0000" w filledcurves y1=0, \
-"}
-        . $filename
-        . q{" using 1:(-$7) notitle lc rgb "#5000ff00" w filledcurves y1=0
-};
-    my $plotFile = "/tmp/monitor.plot";
-    open my $file, '>', $plotFile or return warning("Cannot write plot file $plotFile");
-    print $file $plot;
-    close $file;
-    my $tempImageFile = "/tmp/monitor.svg";
-    my $imageFile     = "$plotDir/monitor-$date.svg";
-    my $command       = "$gnuplot '$plotFile' > '$tempImageFile'";
-    info($command);
-    `$command`;
+    $minRms-20 notitle lc rgb "#00999999", \\
+   -$minRms+20 notitle lc rgb "#00999999", \\
+    $minRms-1  notitle lc rgb "#00999999", \\
+   -$minRms+1  notitle lc rgb "#00999999", \\
+   "$filename" using 1:( \$8) notitle lc rgb "#50eecccc" w filledcurves y1=0, \\
+   "$filename" using 1:(-\$9) notitle lc rgb "#50cceecc" w filledcurves y1=0, \\
+   "$filename" using 1:( \$6) notitle lc rgb "#50ff0000" w filledcurves y1=0, \\
+   "$filename" using 1:(-\$7) notitle lc rgb "#5000ff00" w filledcurves y1=0
+PLOT
+
+    open my $gp, "|-", $gnuplot or return warning("Cannot open pipe to gnuplot");
+    print $gp $plot;
+    close $gp;
     my $exitCode = $? >> 8;
-    return warning("plot finished with $exitCode") if $? >> 8;
-    File::Copy::copy($tempImageFile, $imageFile);
-    info("plot finished with $exitCode") if $isVerboseEnabled2;
+    return warning("plot finished with exit code $exitCode") if $?;
+
+    my $imageFile = "$plotDir/monitor-$date.svg";
+    File::Copy::copy($tempImageFile, $imageFile) or return warning("cannot copy image");
     setFilePermissions($imageFile);
+    info("plot finished successfully") if $isVerboseEnabled2;
 }
 
 sub liquidsoapCmd ($) {
