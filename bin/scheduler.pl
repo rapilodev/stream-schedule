@@ -585,27 +585,18 @@ sub getStreamStatus($;$) {
     }
 }
 
-sub addMeasureToFile {
-    my ($plotDir, $line) = @_;
-    my @data = split(/\s/, $line);
-    for my $i (0 .. 7) {
-        $data[$i] = rmsToDb($data[$i]);
-    }
+# format: peak in L, peak in R, rms in L, rms in R, peak out L, peak out R, rms out L, rms out R
+
+sub addMeasureToFile{
+    my ($plotDir, $data_line) = @_;
     my @localtime = localtime($unixDate);
-    my @line      = (strftime("%F %T", @localtime), @data);
-    $line = join("\t ", @line) . "\n";
+    my @data = split(/\s/, $data_line);
+    my $line = join("\t ", strftime("%F %T", @localtime), @data);
     my $filename = $plotDir . 'monitor' . '-' . strftime("%F", @localtime) . '.log';
-    if (-e $filename) {
-        open my $fh, ">> ", $filename or return warning("cannot write plot log");
-        print $fh $line;
-        close $fh;
-    } else {
-        if (open my $fh, "> ", $filename) {
-            print $fh $line;
-            close $fh;
-            setFilePermissions($filename);
-        }
-    }
+    open my $fh, (-e $filename ? '>>' : '>'), $filename or return warning "cannot write plot log";
+    print $fh "$line\n";
+    close $fh;
+    setFilePermissions($filename);
     info("RMS values measured") if $isVerboseEnabled2;
     $previousPlot = $unixDate;
     my $date = strftime("%F", @localtime);
@@ -619,12 +610,9 @@ sub addMeasureToFile {
     $status->{'measure-out'}->{peakRight} = $data[5];
     $status->{'measure-out'}->{rmsLeft}   = $data[6];
     $status->{'measure-out'}->{rmsRight}  = $data[7];
-    if (   ($status->{'measure-in'}->{rmsLeft} < -60)
-        && ($status->{'measure-in'}->{rmsRight} < -60)
-    ) {
-        my $message = "there is silence";
-        $status->{warnings}->{$message} = time();
-    }
+    $status->{warnings}->{"there is silence"} = time() if
+           $status->{'measure-in'}->{rmsLeft} < -60
+        && $status->{'measure-in'}->{rmsRight} < -60;
 }
 
 sub measureLevels {
@@ -995,15 +983,6 @@ sub clearErrorStatus() {
     $status->{liquidsoap}->{station2}->{error} = '';
 }
 
-sub rmsToDb {
-    my $val = $_[0];
-    if ((looks_like_number($val)) && ($val > 0.0)) {
-        my $db = 20.0 * log($val) / log(10.0);
-        return sprintf("%.02f", $db);
-    } else {
-        return -100.0;
-    }
-}
 $SIG{INT} = sub {
     info("received INT signal, cleanup and quit") if $isVerboseEnabled0;
     closeSocket($telnetSocket);
