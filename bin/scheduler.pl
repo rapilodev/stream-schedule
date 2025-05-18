@@ -739,9 +739,10 @@ PLOT
 }
 
 sub liquidsoapCmd ($) {
-    my $command = shift;
+    my ($command) = @_;
+
     return warning("neither liquidsoap unix socket is configured nor telnet host and port")
-        unless (defined $liquidsoapHost && defined $liquidsoapPort);
+        unless defined $liquidsoapHost && defined $liquidsoapPort;
     my $result = liquidsoapTelnetCmd($telnetSocket, $command) or return;
     if ($result =~ /Connection timed out/) {
         closeSocket($telnetSocket);
@@ -752,133 +753,121 @@ sub liquidsoapCmd ($) {
 }
 
 sub closeSocket {
-    my $socket = shift;
-    return unless defined $socket;
+    my ($socket) = @_;
+    return unless $socket;
     info("close socket $socket") if $isVerboseEnabled3;
-    my $select = IO::Select->new();
-    $select->add($socket);
+    my $select = IO::Select->new($socket);
     print $socket "exit\n" if $select->can_write($socketTimeout);
     close $socket;
-    $socket = undef;
 }
 
 sub openTelnetSocket {
-    my $socket = shift;
-    unless (defined $socket) {
-        info("open telnet socket to $liquidsoapHost:$liquidsoapPort") if $isVerboseEnabled3;
-        $socket = IO::Socket::INET->new(
-            PeerAddr => $liquidsoapHost,
-            PeerPort => $liquidsoapPort,
-            Proto    => "tcp",
-            Type     => SOCK_STREAM,
-            Timeout  => $socketTimeout,
-        );
-        info("opened $socket") if defined $socket && $isVerboseEnabled3;
+    my ($socket) = @_;
+    return $socket if defined $socket;
+    info("open telnet socket to $liquidsoapHost:$liquidsoapPort") if $isVerboseEnabled3;
+    $socket = IO::Socket::INET->new(
+        PeerAddr => $liquidsoapHost,
+        PeerPort => $liquidsoapPort,
+        Proto    => 'tcp',
+        Type     => SOCK_STREAM,
+        Timeout  => $socketTimeout,
+    );
+    if ($socket) {
+        info("opened $socket") if $isVerboseEnabled3;
+    } else {
+        my $msg = "liquidsoap is not available! Cannot connect to telnet $liquidsoapHost:$liquidsoapPort";
+        $status->{liquidsoap}->{cli} = $msg;
+        error($msg);
+        return;
     }
-    my $message = "liquidsoap is not available! "
-        . "Cannot connect to telnet $liquidsoapHost:$liquidsoapPort";
-    unless (defined $socket) {
-        $status->{liquidsoap}->{cli} = $message;
-        error($message);
-        return undef;
-    }
-    if (defined $status->{liquidsoap}  && defined $status->{liquidsoap}->{cli}) {
-        $status->{liquidsoap}->{cli} = '' if $status->{liquidsoap}->{cli} eq $message;
+    if ($status->{liquidsoap}->{cli} && $status->{liquidsoap}->{cli} =~ /Cannot connect/) {
+        $status->{liquidsoap}->{cli} = '';
     }
     return $socket;
 }
 
 sub writeSocket {
     my ($socket, $command) = @_;
-    my $select = IO::Select->new();
-    $select->add($socket);
-    my $stopTime = time() + $socketTimeout;
+
+    my $select   = IO::Select->new($socket);
+    my $deadline = time() + $socketTimeout;
     my $data     = $command . "\n";
-    while (length($data) > 0) {
+
+    while (length $data) {
+        return 0 if time() > $deadline;
         for my $handle ($select->can_write($socketTimeout)) {
             info("syswrite '$data'") if $isVerboseEnabled3;
-            my $rc = syswrite $handle, $data;
-            if ($rc > 0) {
-                info("syswrite ok, length=$rc") if $isVerboseEnabled3;
-                substr($data, 0, $rc) = '';
-            } elsif ($! == EWOULDBLOCK) {
-                info("syswrite would block") if $isVerboseEnabled3;
-            } else {
+            my $rc = syswrite($handle, $data);
+            unless (defined $rc) {
+                if ($! == EWOULDBLOCK) {
+                    info("syswrite would block") if $isVerboseEnabled3;
+                    next;
+                }
                 warning("syswrite error for command=$command");
                 closeSocket($socket);
                 return 0;
             }
-        }
-        if (time() > $stopTime) {
-            warning("syswrite timeout for command=$command");
-            closeSocket($socket);
-            return 0;
+            info("syswrite ok, length=$rc") if $isVerboseEnabled3;
+            substr($data, 0, $rc) = '';
         }
     }
     return 1;
 }
 
 sub readSocket {
-    my $socket = $_[0];
-    my $lines  = '';
-    my $stopTime = time() + $socketTimeout;
-    my $select   = IO::Select->new();
-    $select->add($socket);
-    while (1) {
+    my ($socket) = @_;
+
+    my $lines    = '';
+    my $deadline = time() + $socketTimeout;
+    my $select   = IO::Select->new($socket);
+    while (time() <= $deadline) {
         for my $handle ($select->can_read($socketTimeout)) {
-            my $data = '';
-            my $rc   = sysread $handle, $data, 60000;
-            if (defined $rc) {
-                if ($rc > 0) {
-                    info("sysread ok: $data") if $isVerboseEnabled3;
-                    $lines .= $data;
-                } else {
-                    info("sysread end of line") if $isVerboseEnabled3;
-                    closeSocket($socket);
-                }
-            } elsif ($! == EWOULDBLOCK) {
-                info("sysread would block") if $isVerboseEnabled3;
-            } else {
+            my $data;
+            my $rc = sysread($handle, $data, 60000);
+            unless (defined $rc) {
+                next if $! == EWOULDBLOCK;
                 warning("sysread error");
                 closeSocket($socket);
+                return $lines;
             }
-        }
-        last if $lines =~ /\r\nEND\r\n/;
-        if (time() > $stopTime) {
-            warning("sysread timeout");
-            closeSocket($socket);
-            last;
+            if ($rc == 0) {
+                closeSocket($socket);
+                return $lines;
+            }
+            $lines .= $data;
+            return $lines if $lines =~ /\r\nEND\r\n/;
         }
     }
-    info("result:'$lines'") if $isVerboseEnabled3;
-    return $lines;
-}
 
-sub parseLiquidsoapResponse {
-    my ($command, $lines) = @_;
-    my $result = '';
-    if (defined $lines) {
-        for my $line (split(/\r\n/, $lines)) {
-            next unless defined $line;
-            next                 if $line eq $command;
-            last                 if $line =~ /^END/;
-            info("line:" . $line) if $isVerboseEnabled3;
-            $result .= $line . "\n";
-        }
-    }
-    $result =~ s/\s+$//;
-    info("result:'$result'") if $isVerboseEnabled3;
-    return $result;
+    warning("sysread timeout");
+    closeSocket($socket);
+    info("result:'$lines'") if $isVerboseEnabled3;
+
+    return $lines;
 }
 
 sub liquidsoapTelnetCmd {
     my ($socket, $command) = @_;
     info("send command '$command' to $liquidsoapHost:$liquidsoapPort") if $isVerboseEnabled2;
     $socket = openTelnetSocket($socket);
-    return '' unless defined $socket;
-    writeSocket($socket, $command) or return '';
-    my $lines  = readSocket($socket);
-    my $result = parseLiquidsoapResponse($command, $lines);
+    return '' unless $socket;
+    return '' unless writeSocket($socket, $command);
+    my $response = readSocket($socket);
+    return parseLiquidsoapResponse($command, $response);
+}
+
+sub parseLiquidsoapResponse {
+    my ($command, $lines) = @_;
+    return '' unless defined $lines;
+    my $result = '';
+    for my $line (split /\r\n/, $lines) {
+        next if !defined $line || $line eq $command;
+        last if $line =~ /^END/;
+        info("line:$line") if $isVerboseEnabled3;
+        $result .= "$line\n";
+    }
+    $result =~ s/\s+$//;
+    info("result:'$result'") if $isVerboseEnabled3;
     return $result;
 }
 
@@ -914,26 +903,20 @@ sub printStatus {
 }
 
 sub formatTime {
-    my $time = shift;
-    $time = -$time if $time < 0;
-    my $s = '';
-    if ($time > $day) {
-        my $days = int($time / $day);
-        $time -= $days * $day;
-        $s .= $days . " days, ";
+    my $time = abs shift;
+    my @units = (
+        [$day,  "days"],
+        [$hour, "hours"],
+        [$min,  "mins"]
+    );
+    my @parts;
+    for (@units) {
+        my ($unit, $label) = @$_;
+        push @parts, int($time / $unit) . " $label" if $time >= $unit;
+        $time %= $unit;
     }
-    if ($time > $hour) {
-        my $hours = int($time / $hour);
-        $time -= $hours * $hour;
-        $s .= $hours . " hours, ";
-    }
-    if ($time > $min) {
-        my $mins = int($time / $min);
-        $time -= $mins * $min;
-        $s .= $mins . " mins, ";
-    }
-    $s .= sprintf('%.02f', $time) . " secs";
-    return $s;
+    push @parts, sprintf('%.02f secs', $time);
+    return join(', ', @parts);
 }
 
 sub clearErrorStatus() {
