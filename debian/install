@@ -1,7 +1,9 @@
 bin/scheduler.pl /usr/bin
+bin/scheduler-plot.pl /usr/bin
 bin/scheduler-monitor.pl /usr/bin
 etc/init/stream-schedule.conf /etc/init
 etc/logrotate.d/stream-schedule /etc/logrotate.d
 etc/stream-schedule/stream-schedule.conf /etc/stream-schedule
 etc/systemd/system/stream-schedule.service /etc/systemd/system
+etc/systemd/system/stream-schedule-plot.service /etc/systemd/system
 bin/prepare-stream-schedule.sh
